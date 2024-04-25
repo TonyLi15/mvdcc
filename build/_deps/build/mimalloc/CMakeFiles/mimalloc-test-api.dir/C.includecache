@@ -1,0 +1,36 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/tonyli_15/serval/build/_deps/src/mimalloc/test/test-api.c
+stdio.h
+-
+assert.h
+-
+stdbool.h
+-
+stdint.h
+-
+errno.h
+-
+vector
+-
+mimalloc.h
+/home/tonyli_15/serval/build/_deps/src/mimalloc/test/mimalloc.h
+
+_deps/src/mimalloc/include/mimalloc.h
+stddef.h
+-
+stdbool.h
+-
+cstdint
+-
+type_traits
+-
+utility
+-
+

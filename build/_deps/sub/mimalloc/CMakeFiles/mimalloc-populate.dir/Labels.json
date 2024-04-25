@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/CMakeFiles/mimalloc-populate"
+		},
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/CMakeFiles/mimalloc-populate.rule"
+		},
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/CMakeFiles/mimalloc-populate-complete.rule"
+		},
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/mimalloc-populate-prefix/src/mimalloc-populate-stamp/mimalloc-populate-install.rule"
+		},
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/mimalloc-populate-prefix/src/mimalloc-populate-stamp/mimalloc-populate-mkdir.rule"
+		},
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/mimalloc-populate-prefix/src/mimalloc-populate-stamp/mimalloc-populate-download.rule"
+		},
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/mimalloc-populate-prefix/src/mimalloc-populate-stamp/mimalloc-populate-update.rule"
+		},
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/mimalloc-populate-prefix/src/mimalloc-populate-stamp/mimalloc-populate-patch.rule"
+		},
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/mimalloc-populate-prefix/src/mimalloc-populate-stamp/mimalloc-populate-configure.rule"
+		},
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/mimalloc-populate-prefix/src/mimalloc-populate-stamp/mimalloc-populate-build.rule"
+		},
+		{
+			"file" : "/home/tonyli_15/serval/build/_deps/sub/mimalloc/mimalloc-populate-prefix/src/mimalloc-populate-stamp/mimalloc-populate-test.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"mimalloc-populate"
+		],
+		"name" : "mimalloc-populate"
+	}
+}

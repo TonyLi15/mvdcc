@@ -1,0 +1,21 @@
+Scanning dependencies of target masstree_obj2
+[ 15%] Built target masstree_obj1
+[ 17%] Built target mimalloc-obj
+[ 43%] Built target mimalloc
+[ 44%] Building C object _deps/build/masstree/CMakeFiles/masstree_obj2.dir/clp.c.o
+[ 48%] Built target gtest
+[ 74%] Built target mimalloc-static
+[ 77%] Built target mimalloc-test-stress
+[ 81%] Built target gmock
+[ 84%] Built target gtest_main
+[ 87%] Built target mimalloc-test-api
+[ 91%] Built target gmock_main
+[ 91%] Built target masstree_obj2
+[ 93%] Linking CXX static library libmasstree.a
+[ 93%] Built target masstree
+[ 94%] Built target tpccrunner_objlib
+[ 96%] Built target tpccrunner_static
+Scanning dependencies of target ycsb4_serval
+[ 98%] Building CXX object CMakeFiles/ycsb4_serval.dir/executables/ycsb_serval.cpp.o
+[100%] Linking CXX executable bin/ycsb4_serval
+[100%] Built target ycsb4_serval

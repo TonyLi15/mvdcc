@@ -1,0 +1,38 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/tonyli_15/serval/build/_deps/src/masstree/clp.c
+config.h
+-
+clp.h
+/home/tonyli_15/serval/build/_deps/src/masstree/clp.h
+stdlib.h
+-
+string.h
+-
+stdio.h
+-
+assert.h
+-
+stdarg.h
+-
+ctype.h
+-
+sys/types.h
+-
+inttypes.h
+-
+
+/home/tonyli_15/serval/build/_deps/src/masstree/clp.h
+stdio.h
+-
+stdarg.h
+-
+
+_deps/src/masstree/config.h
+
