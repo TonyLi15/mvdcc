@@ -1,8 +1,0 @@
-Loading all tables with 10000 record(s) each with 4 bytes
-Loaded
-実行時間[MS]： 618
-実行時間[S]： 0
-実行時間[S]： 0
-処理したトランザクション数(NUM_ALL_TXS)： 40960
-TPS： inf
-EPOCH数(NUM_EPOCH)： 10

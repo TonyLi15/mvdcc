@@ -17,11 +17,12 @@
 #include "protocols/serval/ycsb/initializer.hpp"
 #include "protocols/serval/ycsb/transaction.hpp"
 #include "protocols/ycsb_common/definitions.hpp"
-#include "protocols/ycsb_common/epoch_controller.hpp"
 #include "protocols/ycsb_common/make_transactions.hpp"
 #include "protocols/ycsb_common/rendezvous_barrier.hpp"
 #include "utils/logger.hpp"
 #include "utils/numa.hpp"
+#include "utils/perf.hpp"
+#include "utils/tsc.hpp"
 #include "utils/utils.hpp"
 
 volatile mrcu_epoch_type active_epoch = 1;
@@ -37,158 +38,178 @@ using Record = Payload<PAYLOAD_SIZE>;
 
 template <typename Protocol>
 void do_initialization_phase(uint64_t worker_id, uint64_t head_in_the_epoch,
-                             Protocol& serval, std::vector<OperationSet>& txs) {
-  for (uint64_t i = 0; i < NUM_TXS_IN_ONE_EPOCH_IN_ONE_CORE; i++) {
-    serval.txid_ = (worker_id * 64) + i;  // sequential assignment
+                             Protocol &serval, std::vector<OperationSet> &txs) {
+    for (uint64_t i = 0; i < NUM_TXS_IN_ONE_EPOCH_IN_ONE_CORE; i++) {
+        serval.txid_ = (worker_id * 64) + i; // sequential assignment
 
-    std::vector<Operation>& w_set_ =
-        txs[head_in_the_epoch + (worker_id * 64) + i]
-            .w_set_;  // sequential assignment
+        std::vector<Operation> &w_set_ =
+            txs[head_in_the_epoch + (worker_id * 64) + i]
+                .w_set_; // sequential assignment
 
-    for (size_t j = 0; j < w_set_.size(); j++) {
-      serval.append_pending_version(get_id<Record>(), w_set_[j].index_,
-                                    w_set_[j].pending_);
+        for (size_t j = 0; j < w_set_.size(); j++) {
+            serval.append_pending_version(get_id<Record>(), w_set_[j].index_,
+                                          w_set_[j].pending_);
+        }
+        serval.terminate_transaction();
     }
-    serval.terminate_transaction();
-  }
 }
 
 template <typename Protocol>
 void do_execution_phase(uint64_t worker_id, uint64_t head_in_the_epoch,
-                        Protocol& serval, std::vector<OperationSet>& txs) {
-  for (uint64_t i = 0; i < NUM_TXS_IN_ONE_EPOCH_IN_ONE_CORE; i++) {
-    assert(i < txs.size());
-    serval.txid_ = (i * 64) + worker_id;  // round-robin assignment
-    std::vector<Operation>& rw_set =
-        txs[head_in_the_epoch + (i * 64) + worker_id]
-            .rw_set_;  // round-robin assignment
-    for (size_t j = 0; j < rw_set.size(); j++) {
-      if (rw_set[j].ope_ == Operation::Ope::Read) {
-        serval.read(get_id<Record>(), rw_set[j].index_);
-      } else if (rw_set[j].ope_ == Operation::Ope::Update) {
-        if (rw_set[j].pending_) {  // TODO: txθ: w(1)...w(1)
-          serval.write(get_id<Record>(), rw_set[j].pending_);
+                        Protocol &serval, std::vector<OperationSet> &txs) {
+    for (uint64_t i = 0; i < NUM_TXS_IN_ONE_EPOCH_IN_ONE_CORE; i++) {
+        assert(i < txs.size());
+        serval.txid_ = (i * 64) + worker_id; // round-robin assignment
+        std::vector<Operation> &rw_set =
+            txs[head_in_the_epoch + (i * 64) + worker_id]
+                .rw_set_; // round-robin assignment
+        for (size_t j = 0; j < rw_set.size(); j++) {
+            if (rw_set[j].ope_ == Operation::Ope::Read) {
+                serval.read(get_id<Record>(), rw_set[j].index_);
+            } else if (rw_set[j].ope_ == Operation::Ope::Update) {
+                if (rw_set[j].pending_) { // TODO: txθ: w(1)...w(1)
+                    serval.write(get_id<Record>(), rw_set[j].pending_);
+                }
+            }
         }
-      }
     }
-  }
+}
+
+void rendezvous_barrier_to_start(RendezvousBarrier::BarrierType type,
+                                 RendezvousBarrier &rend, uint32_t worker_id) {
+    if (worker_id == 0) {
+        // do parent work
+        rend.wait_all_children_and_send_start(type);
+    } else {
+        // do children work
+        rend.send_ready_and_wait_start(type);
+    }
 }
 
 template <typename Protocol>
-void run_tx(RendezvousBarrier& exp, RendezvousBarrier& exec_phase_start,
-            RendezvousBarrier& exec_phase_end,
-            [[maybe_unused]] ThreadLocalData& t_data, uint32_t worker_id,
-            [[maybe_unused]] TimeStampManager<Protocol>& tsm,
-            RowRegionController& rrc, std::vector<OperationSet>& txs) {
-  uint64_t init_total = 0, exec_total = 0;
-  uint64_t init_start, init_end, exec_start, exec_end;
+void run_tx(RendezvousBarrier &rend, [[maybe_unused]] ThreadLocalData &t_data,
+            uint32_t worker_id,
+            [[maybe_unused]] TimeStampManager<Protocol> &tsm,
+            RowRegionController &rrc, std::vector<OperationSet> &txs) {
+    uint64_t init_total = 0, exec_total = 0;
+    uint64_t init_start, init_end, exec_start, exec_end;
+    [[maybe_unused]] Config &c = get_mutable_config();
 
-  [[maybe_unused]] Config& c = get_mutable_config();
+    // Pre-Initialization Phase
+    pid_t tid = gettid();
+    Numa numa(tid, worker_id);
+    assert(numa.cpu_ == worker_id); // TODO: 削除
+    t_data.stat.record(Stat::MeasureType::Core, numa.cpu_);
+    t_data.stat.record(Stat::MeasureType::Node, numa.node_);
 
-  // Pre-Initialization Phase
-  pid_t tid = gettid();
-  Numa numa(tid, worker_id);
-  assert(numa.cpu_ == worker_id);  // TODO: 削除
-  t_data.stat.record(Stat::MeasureType::Core, numa.cpu_);
-  t_data.stat.record(Stat::MeasureType::Node, numa.node_);
+    Protocol serval(numa.cpu_, worker_id, rrc);
 
-  Protocol serval(numa.cpu_, worker_id, rrc);
+    Perf perf(worker_id, tid);
+    Perf::Output perf_start, perf_end;
 
-  exp.send_ready_and_wait_start();  // rendezvous barrier
+    rendezvous_barrier_to_start(RendezvousBarrier::BarrierType::StartExp, rend,
+                                worker_id);
+    uint64_t exp_start = worker_id == 0 ? rdtscp() : 0;
+    perf.perf_read(perf_start);
 
-  uint64_t epoch = 1;
-  while (epoch <= NUM_EPOCH) {
-    uint64_t head_in_the_epoch = (epoch - 1) * NUM_TXS_IN_ONE_EPOCH;
+    uint64_t epoch = 1;
+    while (epoch <= NUM_EPOCH) {
+        uint64_t head_in_the_epoch = (epoch - 1) * NUM_TXS_IN_ONE_EPOCH;
 
-    serval.epoch_ = epoch;
+        serval.epoch_ = epoch;
 
-    init_start = rdtscp();
-    do_initialization_phase(worker_id, head_in_the_epoch, serval, txs);
-    init_end = rdtscp();
-    init_total = init_total + (init_end - init_start);
+        init_start = rdtscp();
+        do_initialization_phase(worker_id, head_in_the_epoch, serval, txs);
+        init_end = rdtscp();
+        init_total = init_total + (init_end - init_start);
 
-    exec_phase_start.send_ready_and_wait_start();  // rendezvous barrier
+        rendezvous_barrier_to_start(
+            RendezvousBarrier::BarrierType::StartExecPhase, rend, worker_id);
 
-    exec_start = rdtscp();
-    do_execution_phase(worker_id, head_in_the_epoch, serval, txs);
-    exec_end = rdtscp();
-    exec_total = exec_total + (exec_end - exec_start);
+        exec_start = rdtscp();
+        do_execution_phase(worker_id, head_in_the_epoch, serval, txs);
+        exec_end = rdtscp();
+        exec_total = exec_total + (exec_end - exec_start);
 
-    exec_phase_end.send_ready_and_wait_start();  // rendezvous barrier
+        rendezvous_barrier_to_start(
+            RendezvousBarrier::BarrierType::StartNewEpoc, rend, worker_id);
+        epoch++; // new epoch start
+    }
+    uint64_t exp_end = worker_id == 0 ? rdtscp() : 0;
+    perf.perf_read(perf_end);
 
-    epoch++;
-  }
+    t_data.stat.record(Stat::MeasureType::TotalTime, exp_end - exp_start);
+    t_data.stat.record(Stat::MeasureType::InitializationTime, init_total);
+    t_data.stat.record(Stat::MeasureType::ExecutionTime, exec_total);
 
-  t_data.stat.record(Stat::MeasureType::InitializationTime, init_total);
-  t_data.stat.record(Stat::MeasureType::ExecutionTime, exec_total);
+    t_data.stat.record(Stat::MeasureType::PerfLeader,
+                       perf_end.leader_ - perf_start.leader_);
+    t_data.stat.record(Stat::MeasureType::PerfMember,
+                       perf_end.member_ - perf_start.member_);
 }
 
-int main(int argc, const char* argv[]) {
-  if (argc != 9) {
-    printf(
-        "seconds protocol workload_type(A,B,C,F) num_records num_threads skew "
-        "reps_per_txn exp_id\n");
-    exit(1);
-  }
+int main(int argc, const char *argv[]) {
+    if (argc != 9) {
+        printf("seconds protocol workload_type(A,B,C,F) num_records "
+               "num_threads skew "
+               "reps_per_txn exp_id\n");
+        exit(1);
+    }
 
-  [[maybe_unused]] int seconds = std::stoi(argv[1], nullptr, 10);
-  std::string protocol = argv[2];
-  std::string workload_type = argv[3];
-  uint64_t num_records = static_cast<uint64_t>(std::stoi(argv[4], nullptr, 10));
-  int num_threads = std::stoi(argv[5], nullptr, 10);
-  double skew = std::stod(argv[6]);
-  int reps = std::stoi(argv[7], nullptr, 10);
-  [[maybe_unused]] int exp_id = std::stoi(argv[8], nullptr, 10);
+    [[maybe_unused]] int seconds = std::stoi(argv[1], nullptr, 10);
+    std::string protocol = argv[2];
+    std::string workload_type = argv[3];
+    uint64_t num_records =
+        static_cast<uint64_t>(std::stoi(argv[4], nullptr, 10));
+    int num_threads = std::stoi(argv[5], nullptr, 10);
+    double skew = std::stod(argv[6]);
+    int reps = std::stoi(argv[7], nullptr, 10);
+    [[maybe_unused]] int exp_id = std::stoi(argv[8], nullptr, 10);
 
-  assert(seconds > 0);
+    assert(seconds > 0);
 
-  Config& c = get_mutable_config();
-  c.set_protocol(protocol);
-  c.set_workload_type(workload_type);
-  c.set_num_records(num_records);
-  c.set_num_threads(num_threads);
-  c.set_contention(skew);
-  c.set_reps_per_txn(reps);
+    Config &c = get_mutable_config();
+    c.set_protocol(protocol);
+    c.set_workload_type(workload_type);
+    c.set_num_records(num_records);
+    c.set_num_threads(num_threads);
+    c.set_contention(skew);
+    c.set_reps_per_txn(reps);
 
-  printf("Loading all tables with %lu record(s) each with %u bytes\n",
-         num_records, PAYLOAD_SIZE);
+    printf("Loading all tables with %lu record(s) each with %u bytes\n",
+           num_records, PAYLOAD_SIZE);
 
-  using Index = MasstreeIndexes<Value<Version>>;
-  using Protocol = Serval<Index>;
+    using Index = MasstreeIndexes<Value<Version>>;
+    using Protocol = Serval<Index>;
 
-  Initializer<Index>::load_all_tables<Record>();
-  printf("Loaded\n");
+    Initializer<Index>::load_all_tables<Record>();
+    printf("Loaded\n");
 
-  std::vector<std::thread> threads;
-  threads.reserve(num_threads);
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
 
-  TimeStampManager<Protocol> tsm(num_threads, 5);
+    TimeStampManager<Protocol> tsm(num_threads, 5);
 
-  std::vector<ThreadLocalData> t_data(num_threads);
+    std::vector<ThreadLocalData> t_data(num_threads);
 
-  RowRegionController rrc;
+    RowRegionController rrc;
+    RendezvousBarrier rend(num_threads - 1);
 
-  RendezvousBarrier exp(num_threads), exec_phase_start(num_threads),
-      exec_phase_end(num_threads);
+    std::vector<OperationSet> txs(NUM_ALL_TXS);
+    make_transactions(txs);
 
-  std::vector<OperationSet> txs(NUM_ALL_TXS);
-  make_transactions(txs);
+    for (int i = 0; i < num_threads; i++) {
+        threads.emplace_back(run_tx<Protocol>, std::ref(rend),
+                             std::ref(t_data[i]), i, std::ref(tsm),
+                             std::ref(rrc), std::ref(txs));
+    }
+    for (int i = 0; i < num_threads; i++) {
+        threads[i].join();
+    }
 
-  for (int i = 0; i < num_threads; i++) {
-    threads.emplace_back(run_tx<Protocol>, std::ref(exp),
-                         std::ref(exec_phase_start), std::ref(exec_phase_end),
-                         std::ref(t_data[i]), i, std::ref(tsm), std::ref(rrc),
-                         std::ref(txs));
-  }
-
-  epoch_controller(exp, exec_phase_start, exec_phase_end, NUM_EPOCH);
-  for (int i = 0; i < num_threads; i++) {
-    threads[i].join();
-  }
-
-  Stat stat;
-  std::string filepath = stat.prepare_result_file();
-  for (size_t i = 0; i < t_data.size(); i++) {
-    t_data[i].stat.log(filepath);
-  };
+    Stat stat;
+    std::string filepath = stat.prepare_result_file();
+    for (size_t i = 0; i < t_data.size(); i++) {
+        t_data[i].stat.log(filepath);
+    };
 }

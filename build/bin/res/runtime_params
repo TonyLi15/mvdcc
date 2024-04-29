@@ -1,1 +1,0 @@
-protocol,num_records,num_threads,contention,reps_per_txn,read_propotion,update_propotion

@@ -1,3 +1,0 @@
-/home/tonyli_15/serval/build/_deps/sub/mimalloc/CMakeFiles/rebuild_cache.dir
-/home/tonyli_15/serval/build/_deps/sub/mimalloc/CMakeFiles/edit_cache.dir
-/home/tonyli_15/serval/build/_deps/sub/mimalloc/CMakeFiles/mimalloc-populate.dir

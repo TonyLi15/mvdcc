@@ -1,3 +1,0 @@
-repository='https://github.com/microsoft/mimalloc'
-module=''
-tag='origin'

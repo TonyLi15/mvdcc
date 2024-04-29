@@ -1,2 +1,0 @@
-/usr/bin/ar qc lib/libtpccrunner_static.a  CMakeFiles/tpccrunner_objlib.dir/benchmarks/ycsb/src/record_key.cpp.o
-/usr/bin/ranlib lib/libtpccrunner_static.a

@@ -1,1 +1,0 @@
-/usr/bin/c++  -O0 -g  -Wl,--export-dynamic -rdynamic -pthread CMakeFiles/ycsb4_caracal.dir/executables/ycsb_caracal.cpp.o  -o bin/ycsb4_caracal  -Wl,-rpath,/home/tonyli_15/serval/build/_deps/build/mimalloc lib/libtpccrunner_static.a _deps/build/mimalloc/libmimalloc-debug.so.1.7 -lpthread /usr/lib/x86_64-linux-gnu/librt.so _deps/build/masstree/libmasstree.a 

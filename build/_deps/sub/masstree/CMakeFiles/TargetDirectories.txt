@@ -1,3 +1,0 @@
-/home/tonyli_15/serval/build/_deps/sub/masstree/CMakeFiles/rebuild_cache.dir
-/home/tonyli_15/serval/build/_deps/sub/masstree/CMakeFiles/edit_cache.dir
-/home/tonyli_15/serval/build/_deps/sub/masstree/CMakeFiles/masstree-populate.dir
