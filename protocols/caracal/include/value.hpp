@@ -18,7 +18,6 @@ template <typename Version_> struct Value {
 
     // For contended versions
     RowBuffer *row_buffer_ = nullptr; // Pointer to per-core buffer
-    uint64_t core_bitmap_ = 0;
 
     void initialize() { rwl.initialize(); }
 

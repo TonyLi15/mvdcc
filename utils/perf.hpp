@@ -9,7 +9,6 @@
 #include <unistd.h>    // syscall
 
 #include <cstdint>
-#include <cassert>     // assert
 
 class Perf {
   private:
@@ -54,9 +53,11 @@ class Perf {
 
         pe.read_format = PERF_FORMAT_GROUP;
         pe.disabled = 1;
-        pe.exclude_kernel = 0;
-        pe.exclude_hv = 0;
-        pe.exclude_idle = 0;
+        // pe.exclude_user = 1;
+        pe.exclude_kernel = 1;
+        pe.exclude_hv = 1;
+        pe.exclude_idle = 1;
+        pe.exclude_guest = 1;
         fd_leader_ = perf_event_open(&pe, tid, cpu, -1, 0);
         if (fd_leader_ == -1) {
             assert(false);

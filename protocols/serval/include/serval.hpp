@@ -4,15 +4,17 @@
 #include <cstring>
 #include <set>
 #include <stdexcept>
+#include <unordered_set>
 
 #include "indexes/masstree.hpp"
-#include "protocols/common/timestamp_manager.hpp"
+#include "protocols/common/readwritelock.hpp"
 #include "protocols/common/transaction_id.hpp"
 #include "protocols/serval/include/readwriteset.hpp"
 #include "protocols/serval/include/region.hpp"
 #include "protocols/serval/include/value.hpp"
 #include "utils/bitmap.hpp"
 #include "utils/logger.hpp"
+#include "utils/tsc.hpp"
 #include "utils/utils.hpp"
 
 template <typename Index> class Serval {
@@ -23,8 +25,9 @@ template <typename Index> class Serval {
     using LeafNode = typename Index::LeafNode;
     using NodeInfo = typename Index::NodeInfo;
 
-    Serval(uint64_t core_id, uint64_t txid, RowRegionController &rrc)
-        : core_(core_id), txid_(txid), rrc_(rrc) {}
+    Serval(uint64_t core_id, uint64_t txid, RowRegionController &rrc,
+           Stat &stat)
+        : core_(core_id), txid_(txid), rrc_(rrc), stat_(stat) {}
 
     ~Serval() {}
 
@@ -53,7 +56,7 @@ template <typename Index> class Serval {
             if (res == Index::Result::NOT_FOUND) {
                 assert(false);
                 throw std::runtime_error(
-                    "masstree NOT_FOUND"); 
+                    "masstree NOT_FOUND"); // TODO: この場合、どうするかを考える
                 return;
             }
 
@@ -80,7 +83,7 @@ template <typename Index> class Serval {
         if (res == Index::Result::NOT_FOUND) {
             assert(false);
             throw std::runtime_error(
-                "masstree NOT_FOUND");
+                "masstree NOT_FOUND"); // TODO: この場合、どうするかを考える
             return nullptr;
         }
 
@@ -110,15 +113,14 @@ template <typename Index> class Serval {
         // append occur only in global array
         if (core_bitmap == 0 && visible_in_global_array) {
             assert(visible_in_global_array);
-            assert(txid_in_global_array < txid_);
+            assert(txid_in_global_array < (int)txid_);
             visible = visible_in_global_array;
             assert(visible);
             return wait_stable_and_execute_read(visible);
         }
 
-        assert(val->row_region_);
+        assert(val->row_region_); // 以下は core_bitmap != 0 のとき
 
-        // Case of core_bitmap != 0:
         auto [core, tx] =
             identify_visible_version_in_per_core_version_array(val);
 
@@ -129,6 +131,7 @@ template <typename Index> class Serval {
                 visible = val->master_;
                 return execute_read(visible);
             } else {
+                assert((core * 64 + tx) < (int)txid_);
                 visible = val->row_region_->arrays_[core]->get(tx);
                 return wait_stable_and_execute_read(visible);
             }
@@ -136,12 +139,14 @@ template <typename Index> class Serval {
 
         // append occur in per core version array and in global array
         if (core_bitmap != 0 && visible_in_global_array) {
+            assert(txid_in_global_array < (int)txid_);
             if (core == -1) {
                 // visible version not found in per core version array
                 visible = visible_in_global_array;
                 return wait_stable_and_execute_read(visible);
             } else {
-                uint64_t tx_id = (core * 64) + tx;
+                int tx_id = (core * 64) + tx;
+                assert(tx_id < (int)txid_);
                 visible = (tx_id < txid_in_global_array)
                               ? visible_in_global_array
                               : val->row_region_->arrays_[core]->get(tx);
@@ -155,11 +160,12 @@ template <typename Index> class Serval {
 
     std::tuple<int, int>
     identify_visible_version_in_per_core_version_array(Value *val) {
-        int core = find_the_largest_among_smallers(val->core_bitmap_, core_);
+        int core =
+            find_the_largest_among_or_less_than(val->core_bitmap_, core_);
         if (core == -1)
             return {-1, -1}; // not found in the per core version array
 
-        int tx = find_the_largest_among_smallers(
+        int tx = find_the_largest_among_less_than(
             val->row_region_->arrays_[core]->transaction_bitmap_, txid_ % 64);
         if (tx != -1)
             return {core, tx}; // found in the per core version array
@@ -167,7 +173,7 @@ template <typename Index> class Serval {
         if (core == 0)
             return {-1, -1}; // not found in the per core version array
         int next_core =
-            find_the_largest_among_smallers(val->core_bitmap_, core - 1);
+            find_the_largest_among_or_less_than(val->core_bitmap_, core - 1);
         if (next_core == -1)
             return {-1, -1}; // not found in the per core version array
 
@@ -185,7 +191,8 @@ template <typename Index> class Serval {
         const Schema &sch = Schema::get_schema();
         size_t record_size = sch.get_record_size(table_id);
 
-        Rec *rec = MemoryAllocator::aligned_allocate(record_size);
+        // Rec *rec = MemoryAllocator::aligned_allocate(record_size);
+        Rec *rec = reinterpret_cast<Rec *>(operator new(record_size));
 
         __atomic_store_n(&pending->rec, rec, __ATOMIC_SEQ_CST); // write
         __atomic_store_n(&pending->status, Version::VersionStatus::STABLE,
@@ -193,8 +200,21 @@ template <typename Index> class Serval {
         return rec;
     }
 
+#if BATCH_CORE_BITMAP_UPDATE
+    void batch_core_bitmap_update() {
+        uint64_t start = rdtscp();
+        for (Value *val : core_bitmaps_) {
+            __atomic_or_fetch(&val->core_bitmap_,
+                              set_bit_at_the_given_location(core_),
+                              __ATOMIC_SEQ_CST); // core 2: 0010 0000 ... 0000
+        }
+        core_bitmaps_.clear();
+        stat_.add(Stat::MeasureType::FinalizeInitializationTime,
+                  rdtscp() - start);
+    }
+#endif
+
     uint64_t core_;
-    // TxID txid_;
     uint64_t txid_;
     uint64_t epoch_ = 0;
 
@@ -205,6 +225,12 @@ template <typename Index> class Serval {
     RowRegion *spare_region_ = nullptr;
 
     RowRegionController &rrc_;
+
+    Stat &stat_;
+
+#if BATCH_CORE_BITMAP_UPDATE
+    std::unordered_set<Value *> core_bitmaps_;
+#endif
 
     void do_append_pending_version(Value *val, Version *&pending) {
         assert(!pending);
@@ -261,9 +287,6 @@ template <typename Index> class Serval {
 
         while ((epoch = __atomic_load_n(&val->epoch_, __ATOMIC_SEQ_CST)) <
                epoch_) {
-            /*
-             case1: val->epoch_ < epoch_
-             */
             assert(epoch < epoch_);
 
             if (!val->try_lock())
@@ -275,6 +298,7 @@ template <typename Index> class Serval {
                 // val
                 pending = initialize_the_row_and_append(val); // unlock
             } else {
+                assert(val->epoch_ == epoch_);
                 pending = append_to_unconted_row(val); // unlock
             }
 
@@ -282,18 +306,25 @@ template <typename Index> class Serval {
         };
     }
 
-    Version *initialize_the_row_and_append(Value *val) {
-        // 1. store the final state of one previous epoch to val->master_
-        val->master_ = find_final_state_in_one_previous_epoch(val);
-        assert(val->master_);
+    void minor_gc_master_version(Version *master) {
+        assert(master);
+        assert(master->rec);
+        // MemoryAllocator::deallocate(master->rec);
+        // MemoryAllocator::deallocate(master);
+        delete reinterpret_cast<Record *>(master->rec);
+        delete master;
+    }
 
-        // 2. initialize the global_array_ and core_bitmap_
-        val->core_bitmap_ = 0;
-        val->global_array_.initialize();
+    Version *initialize_the_row_and_append(Value *val) {
+        minor_gc_master_version(val->master_);
+
+        // 1. store the final state of one previous epoch to val->master_
+        val->master_ = find_final_state_and_initialize(val);
+        assert(val->master_);
 
         // 3. append to the global_array_
         Version *pending = create_pending_version();
-        val->global_array_.append(pending, txid_, core_);
+        val->global_array_.append(pending, txid_);
 
         // 4. update val->epoch_
         val->epoch_ = epoch_;
@@ -305,52 +336,39 @@ template <typename Index> class Serval {
     }
 
     // call with lock
-    Version *find_final_state_in_one_previous_epoch(Value *val) {
+    Version *find_final_state_and_initialize(Value *val) {
+        // 2. initialize the global_array_ and core_bitmap_
         auto [id_global_array, latest_global_array] =
-            val->global_array_.latest();
-
-        assert(latest_global_array);
-
+            val->global_array_.find_final_state_and_initialize();
         // any append didn't occurred in one previous epoch
         assert(!(latest_global_array == nullptr && val->core_bitmap_ == 0));
 
         // only appended in global array
-        if (latest_global_array != nullptr && val->core_bitmap_ == 0) {
+        if (val->core_bitmap_ == 0) {
             assert(latest_global_array);
             return latest_global_array;
         }
 
-        assert(val->row_region_); // 以下は、val->core_bitmap_ != 0 のとき
-
-        // core_bitmap_ is true
         int core = find_the_largest(val->core_bitmap_);
-        PerCoreVersionArray *version_array = val->row_region_->arrays_[core];
+        val->core_bitmap_ = 0; // initialize
+        auto [id_region, latest_region] =
+            val->row_region_->find_final_state(core);
+        assert(latest_region);
 
         // only appended in region
-        if (latest_global_array == nullptr && val->core_bitmap_ != 0) {
-            assert(0 < version_array->length());
-            assert(version_array->latest());
-            return version_array->latest();
-        }
+        if (latest_global_array == nullptr)
+            return latest_region;
 
         // appended in core_bitmap_ and global array
-        if (latest_global_array != nullptr && val->core_bitmap_ != 0) {
-            int tx = find_the_largest(version_array->transaction_bitmap_);
-            uint64_t tx_id = (core * 64) + tx;
-            assert(tx_id != id_global_array);
-
-            if (tx_id < id_global_array) {
-                assert(latest_global_array);
-                return latest_global_array;
-            } else {
-                assert(0 < version_array->length());
-                assert(version_array->latest()); // ERROR
-                return version_array->latest();
-            }
+        assert(0 <= id_global_array);
+        int epoch_txid_region = (core * 64) + id_region;
+        assert(static_cast<int>(epoch_txid_region) != id_global_array);
+        if (static_cast<int>(epoch_txid_region) < id_global_array) {
+            assert(latest_global_array);
+            return latest_global_array;
         }
 
-        assert(false);
-        return nullptr;
+        return latest_region;
     }
 
     Rec *execute_read(Version *visible) {
@@ -360,11 +378,14 @@ template <typename Index> class Serval {
 
     Rec *wait_stable_and_execute_read(Version *visible) {
         assert(visible);
-        // while (__atomic_load_n(&visible->status, __ATOMIC_SEQ_CST) ==
-        //        Version::VersionStatus::PENDING) {
-        //   // spin
-        // }
+        uint64_t start = rdtscp();
+        while (__atomic_load_n(&visible->status, __ATOMIC_SEQ_CST) ==
+               Version::VersionStatus::PENDING) {
+            // spin
+            asm volatile("pause" : : : "memory"); // equivalent to "rep; nop"
+        }
         // TODO: やばい
+        stat_.add(Stat::MeasureType::WaitInExecution, rdtscp() - start);
         return execute_read(visible);
     }
 
@@ -381,7 +402,7 @@ template <typename Index> class Serval {
         Version *new_version = create_pending_version();
 
         // Append pending version to global version chain
-        val->global_array_.append(new_version, txid_, core_);
+        val->global_array_.append(new_version, txid_);
         assert(val->global_array_.is_exist(txid_));
 
         val->unlock();
@@ -397,8 +418,14 @@ template <typename Index> class Serval {
         // 1. Create pending version
         Version *pending = create_pending_version();
 
-        // 2. Update core bitmap if this is the first append in the current
-        // epoch Otherwise, core_bitmap_ is already updated
+// 2. Update core bitmap if this is the first append in the current
+// epoch Otherwise, core_bitmap_ is already updated
+#if BATCH_CORE_BITMAP_UPDATE
+        if (core_bitmaps_.find(val) == core_bitmaps_.end()) {
+            region->initialize(core_); // clear transaction bitmap
+            core_bitmaps_.insert(val);
+        }
+#else
         uint64_t core_bitmap =
             __atomic_load_n(&val->core_bitmap_, __ATOMIC_SEQ_CST);
         if (!is_bit_set_at_the_position(core_bitmap, core_)) {
@@ -409,6 +436,7 @@ template <typename Index> class Serval {
             assert(is_bit_set_at_the_position(
                 __atomic_load_n(&val->core_bitmap_, __ATOMIC_SEQ_CST), core_));
         }
+#endif
 
         // 3. Append to per-core version array and update transaction bitmap
         region->append(core_, pending, txid_ % 64);
@@ -417,8 +445,9 @@ template <typename Index> class Serval {
     }
 
     Version *create_pending_version() {
-        Version *version = reinterpret_cast<Version *>(
-            MemoryAllocator::aligned_allocate(sizeof(Version)));
+        // Version *version = reinterpret_cast<Version *>(
+        //     MemoryAllocator::aligned_allocate(sizeof(Version)));
+        Version *version = new Version;
         version->rec = nullptr; // TODO
         version->deleted = false;
         version->status = Version::VersionStatus::PENDING;

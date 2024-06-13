@@ -3,7 +3,21 @@ import matplotlib.ticker as ptick  ##これが必要！
 
 
 class Plot:
-    markersize = 20
+    markersize = 15
+    marker = {"caracal": "^", "serval": "x", "serval_BCBU": "+"}
+    color = {"caracal": "red", "serval": "blue", "serval_BCBU": "green"}
+    ylabel = {
+      "Core": "Core",
+      "Node": "Node",
+      "TotalTime": "Total Latency",
+      "InitializationTime": "Initialization Latency",
+      "FinalizeInitializationTime": "Finalize Initialization Latency",
+      "ExecutionTime": "Execution Latency",
+      "WaitInInitialization": "Latch Wait in Initialization",
+      "WaitInExecution": "Wait in Execution",
+      "PerfLeader": "Perf Leader", # change
+      "PerfMember": "Perf Member", # change
+  }
 
     def __init__(self, VARYING_TYPE, x_label, protocols, plot_params):
         self.VARYING_TYPE = VARYING_TYPE
@@ -34,10 +48,11 @@ class Plot:
         if "Time" in param or "Wait" in param:
             return df[param] / CLOCKS_PER_SEC
         return df[param]
+
     def organize_ylabel_by_param(self, param):
         if "Time" in param or "Wait" in param:
-            return param + " [S]"
-        return param
+            return self.ylabel[param] + " [S]"
+        return self.ylabel[param]
 
     node_color = {"node0": "red", "node1": "blue"}
     def plot_all_param_per_core(self, protocol_name, df):
@@ -61,6 +76,8 @@ class Plot:
                     node_lines.append(line)
                     node_labels.append(node_label)
             fig.tight_layout()
+            plt.rcParams['text.usetex'] = False
+            plt.rcParams['font.family'] = 'serif'
             plt.legend(node_lines, node_labels, fontsize=19)
             plt.tick_params(labelsize=19)
             plt.xticks(rotation=40)
@@ -85,9 +102,13 @@ class Plot:
                 df["PerfMember"]/df["PerfLeader"]*100, # miss / all reference
                 markersize=self.markersize,
                 clip_on=False,
-                label=protocol
+                label=protocol,
+                marker=self.marker[protocol],
+                color=self.color[protocol]
             )
         fig.tight_layout()
+        plt.rcParams['text.usetex'] = False
+        plt.rcParams['font.family'] = 'serif'
         plt.tick_params(labelsize=19)
         plt.legend(fontsize=19)
         plt.xticks(rotation=40)
@@ -105,6 +126,8 @@ class Plot:
 
     def plot_all_param_all_protocol(self, dfs):
         for param in self.plot_params:
+            plt.rcParams['text.usetex'] = False
+            plt.rcParams['font.family'] = 'serif'
             fig, ax1 = plt.subplots(dpi=300)
             for protocol in self.protocols:
                 df = dfs[protocol]
@@ -113,7 +136,9 @@ class Plot:
                     self.organize_data_by_param(df, param),
                     markersize=self.markersize,
                     clip_on=False,
-                    label=protocol
+                    label=protocol,
+                    marker=self.marker[protocol],
+                    color=self.color[protocol]
                 )
             fig.tight_layout()
             plt.tick_params(labelsize=19)
@@ -131,3 +156,33 @@ class Plot:
                 bbox_inches="tight",
             )
 
+
+    def plot_all_param(self, protocol, df):
+        for param in self.plot_params:
+            plt.rcParams['text.usetex'] = False
+            plt.rcParams['font.family'] = 'serif'
+            fig, ax1 = plt.subplots(dpi=300)
+            ax1.plot(
+                self.get_x_ticks(df, self.VARYING_TYPE),
+                self.organize_data_by_param(df, param),
+                markersize=self.markersize,
+                clip_on=False,
+                label=protocol,
+                marker=self.marker[protocol],
+                color=self.color[protocol]
+            )
+            fig.tight_layout()
+            plt.tick_params(labelsize=19)
+            plt.legend(fontsize=19)
+            plt.xticks(rotation=40)
+            plt.xlabel(self.x_label[self.VARYING_TYPE], fontsize=25)
+            plt.ylabel(self.organize_ylabel_by_param(param), fontsize=25)
+            plt.grid()
+            plt.savefig(
+                protocol + "_" + param + "_varying_" + self.VARYING_TYPE + ".pdf",
+                bbox_inches="tight",
+            )
+            plt.savefig(
+                protocol + "_" + param + "_varying_" + self.VARYING_TYPE + ".eps",
+                bbox_inches="tight",
+            )

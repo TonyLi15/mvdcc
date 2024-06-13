@@ -127,6 +127,27 @@ if (BENCHMARK STREQUAL "YCSB")
   list(APPEND BENCHMARK_DEFINITION "-DPAYLOAD_SIZE=${PAYLOAD_SIZE}")
 endif()
 
+
+if (DEFINED MAX_SLOTS_OF_PER_CORE_BUFFER)
+    add_definitions(-DMAX_SLOTS_OF_PER_CORE_BUFFER=${MAX_SLOTS_OF_PER_CORE_BUFFER})
+else ()
+    add_definitions(-DMAX_SLOTS_OF_PER_CORE_BUFFER=4)
+endif ()
+
+
+if (DEFINED NUM_TXS_IN_ONE_EPOCH)
+    add_definitions(-DNUM_TXS_IN_ONE_EPOCH=${NUM_TXS_IN_ONE_EPOCH})
+else ()
+    add_definitions(-DNUM_TXS_IN_ONE_EPOCH=4096)
+endif ()
+
+if (DEFINED BATCH_CORE_BITMAP_UPDATE)
+    add_definitions(-DBATCH_CORE_BITMAP_UPDATE=${BATCH_CORE_BITMAP_UPDATE})
+else ()
+    add_definitions(-DBATCH_CORE_BITMAP_UPDATE=0)
+endif ()
+
+
 ###############################################################################
 #                            CC Specific Parameters                           #
 ###############################################################################
@@ -193,7 +214,9 @@ file(GLOB_RECURSE UTILS_SRCS
 ###############################################################################
 
 # Add common dependencies
-add_dep(mimalloc https://github.com/microsoft/mimalloc v1.7.1)
+# add_dep(mimalloc https://github.com/microsoft/mimalloc v1.7.1)
+add_dep(mimalloc https://github.com/microsoft/mimalloc v1.8.4)
+
 add_dep(googletest https://github.com/google/googletest.git main)
 
 set(TPCCRUNNER_SRCS "")
@@ -244,7 +267,7 @@ message(STATUS "[ADDED] tpccrunner_static")
 
 set(EXECUTABLE "${PROJECT_SOURCE_DIR}/executables/${BENCH_NAME}_${CC_NAME}.cpp")
 if ("${BENCH_NAME}" STREQUAL "ycsb")
-  set(FILENAME "${BENCH_NAME}${PAYLOAD_SIZE}_${CC_NAME}")
+  set(FILENAME "${BENCH_NAME}${PAYLOAD_SIZE}_${MAX_SLOTS_OF_PER_CORE_BUFFER}_${NUM_TXS_IN_ONE_EPOCH}_${BATCH_CORE_BITMAP_UPDATE}_${CC_NAME}")
 else ()
   set(FILENAME "${BENCH_NAME}_${CC_NAME}")
 endif ()
@@ -358,3 +381,6 @@ file(GLOB_RECURSE
 foreach (_var IN LISTS BUILD_SUPPORT_SCRIPTS)
     execute_process(COMMAND chmod +x "${_var}")
 endforeach ()
+
+
+

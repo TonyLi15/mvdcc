@@ -52,6 +52,7 @@ struct Stat {
         Node,
         TotalTime,
         InitializationTime,
+        FinalizeInitializationTime,
         ExecutionTime,
         WaitInInitialization,
         WaitInExecution,
@@ -65,6 +66,7 @@ struct Stat {
         "Node",
         "TotalTime",
         "InitializationTime",
+        "FinalizeInitializationTime",
         "ExecutionTime",
         "WaitInInitialization",
         "WaitInExecution",
@@ -72,10 +74,13 @@ struct Stat {
         "PerfMember",
     };
 
-    std::vector<std::string> compile_params_ = {std::to_string(PAYLOAD_SIZE),
-                                                std::to_string(CLOCKS_PER_US)};
-    std::vector<std::string> compile_params_name = {"PAYLOAD_SIZE",
-                                                    "CLOCKS_PER_US"};
+    std::vector<std::string> compile_params_ = {
+        std::to_string(PAYLOAD_SIZE),
+        std::to_string(MAX_SLOTS_OF_PER_CORE_BUFFER),
+        std::to_string(NUM_TXS_IN_ONE_EPOCH), std::to_string(CLOCKS_PER_US)};
+    std::vector<std::string> compile_params_name = {
+        "PAYLOAD_SIZE", "MAX_SLOTS_OF_PER_CORE_BUFFER", "NUM_TXS_IN_ONE_EPOCH",
+        "CLOCKS_PER_US"};
     std::vector<std::string> get_runtime_params() {
         const Config &c = get_config();
         return {c.get_protocol(),
