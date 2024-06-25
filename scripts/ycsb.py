@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os
-from sys import executable
+from sys import executable, argv
 
 import pandas as pd
 import numpy as np
@@ -14,7 +14,6 @@ import module.setting as setting
 # EXECUTE THIS SCRIPT IN BASE DIRECTORY!!!
 
 NUM_EXPERIMENTS_PER_SETUP = 10  # used in plot
-NUM_SECONDS = 1  # used in plot
 VARYING_TYPE = "contention"  # used in plot
 
 x_label = {
@@ -27,40 +26,54 @@ x_label = {
 
 protocol_id = {"CARACAL": 0, "SERVAL": 1}
 
-# protocols = ["serval"]
-# protocols = ["caracal"]
 protocols = ["caracal", "serval"]
 CMAKE_BUILD_TYPE = "Release"
 
-def gen_setups():
+def parse_args():
+    default_args = {
+        "workload_type": "X",
+        "num_records": 10000000,
+        "num_threads": 64,
+        "seconds": 1,
+        "skews": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99, 0.999],
+        "reps_per_txn": 10
+    }
+    
+    if len(argv) > 1:
+        default_args["workload_type"] = argv[1]
+        default_args["num_records"] = int(argv[2])
+        default_args["num_threads"] = int(argv[3])
+        default_args["seconds"] = int(argv[4])
+        default_args["skews"] = list(map(float, argv[5].split(',')))
+        default_args["reps_per_txn"] = int(argv[6])
+    
+    return default_args
+
+def gen_setups(args):
     payloads = [4]
     buffer_slots = [4] # for caracal
     txs_in_epochs = [4096] # (1000epoch) (500epoch) (100epoch) respectively
     batch_core_bitmap_updates = [0] # 0 is good
 
-    workloads = ["X"] # Write Only
-    # workloads = ["A"]  # 50:50
-    # workloads = ["B"] # 5:95
-    # workloads = ["Y"] # 60:40
-    records = [10000000] # ここは変更しないでください！（未対応）
-    threads = [64] # ここは変更しないでください！（未対応）
-    # skews = [0.7, 0.8, 0.85, 0.9, 0.95, 0.99] # 0.0 - 0.99
-    skews = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99, 0.999] # 0.0 - 0.99, skip = 0.01
-    # skews = [0.85, 0.86, 0.87, 0.88, 0.89, 0.9, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99] # high contention, 0.85 - 0.99, skip = 0.01
-
-    repss = [10] # ここは変更しないでください！（未対応）
+    # workloads
+    # X: Write-only A: 50:50 B 5:95
+    workloads = [args["workload_type"]] 
+    records = [args["num_records"]]
+    threads = [args["num_threads"]]
+    skews = args["skews"]
+    repss = [args["reps_per_txn"]] # ここは変更しないでください！（未対応）
 
     return [
         [
             [protocol, str(payload), str(buffer_slot), str(txs_in_epoch), str(batch_core_bitmap_update)],
-            [
-                protocol + "_BCBU" if batch_core_bitmap_update else protocol,
-                workload,
-                str(record),
-                str(thread),
-                str(skew),
-                str(reps),
-            ],
+            {
+                "protocol": protocol,
+                "workload": workload,
+                "record": record,
+                "thread": thread,
+                "skew": skew,
+                "reps": reps
+            }
         ]
         for protocol in protocols
         for payload in payloads
@@ -81,7 +94,7 @@ def build():
     os.chdir("./build")
     if not os.path.exists("./log"):
         os.mkdir("./log")  # compile logs
-    for setup in gen_setups():
+    for setup in gen_setups(parse_args()):
         [[protocol, payload, buffer_slot, txs_in_epoch, batch_core_bitmap_update], _] = setup
         print("Compiling " + " PAYLOAD_SIZE=" + payload + " MAX_SLOTS_OF_PER_CORE_BUFFER=" + buffer_slot + " NUM_TXS_IN_ONE_EPOCH=" + txs_in_epoch + " BATCH_CORE_BITMAP_UPDATE=" + batch_core_bitmap_update)
         logfile = "_PAYLOAD_SIZE" + payload + "_MAX_SLOTS_OF_PER_CORE_BUFFER" + buffer_slot + ".compile_log"
@@ -111,18 +124,19 @@ def build():
 
 
 def run_all():
+    args = parse_args()
     os.chdir("./build/bin")  # move to bin
     if not os.path.exists("./res"):
         os.mkdir("./res")  # create result directory inside bin
         os.mkdir("./res/tmp")
-    for setup in gen_setups():
+    for setup in gen_setups(args):
         [
             [protocol, payload, buffer_slot, txs_in_epoch, batch_core_bitmap_update],
-            args,
+            run_args,
         ] = setup
         title = "ycsb" + payload + "_" + buffer_slot + "_" + txs_in_epoch + "_" + batch_core_bitmap_update + "_" + protocol
 
-        print("[{}: {}]".format(title, " ".join([str(NUM_SECONDS), *args])))
+        print("[{}: {}]".format(title, " ".join([str(args["seconds"]), protocol, str(run_args["workload"]), str(run_args["record"]), str(run_args["thread"]), str(run_args["skew"]), str(run_args["reps"])])))
 
         for exp_id in range(NUM_EXPERIMENTS_PER_SETUP):
             dt_now = datetime.datetime.now()
@@ -132,7 +146,7 @@ def run_all():
                 "./"
                 + title
                 + " "
-                + " ".join([str(NUM_SECONDS), *args, str(exp_id)])
+                + " ".join([str(args["seconds"]), protocol, str(run_args["workload"]), str(run_args["record"]), str(run_args["thread"]), str(run_args["skew"]), str(run_args["reps"]), str(exp_id)])
                 + " > ./res/tmp/"
                 + str(dt_now.isoformat())
                 + " 2>&1"
@@ -186,9 +200,9 @@ def plot_all():
 
     my_plot.plot_all_param_all_protocol(grouped_dfs)
     my_plot.plot_all_param_per_core("serval", dfs["serval"])
-    # my_plot.plot_all_param_per_core("serval_BCBU", dfs["serval_BCBU"])
+    #my_plot.plot_all_param_per_core("serval_BCBU", dfs["serval_BCBU"])
     my_plot.plot_all_param_per_core("caracal", dfs["caracal"])
-    my_plot.plot_all_param_per_core("serval", dfs["serval"])
+    #my_plot.plot_all_param_per_core("serval", dfs["serval"])
     # my_plot.plot_cache_hit_rate(grouped_dfs)
 
     # my_plot.plot_cache_hit_rate(grouped_dfs)
