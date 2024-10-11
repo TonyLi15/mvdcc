@@ -45,11 +45,17 @@ class Config {
         } else if (workload_type == "F") {
             // Read-modify-write
             w.set_workload(50, 0, 50);
-        } else if (workload_type == "X") {
-            // write only: not originated from YCSB Workload
+        } else if (workload_type == "X") { // original not ycsb
+            // write only
             w.set_workload(0, 100, 0);
+        } else if (workload_type == "W90") { // original not ycsb
+            // write intensive
+            w.set_workload(10, 90, 0);
+        } else if (workload_type == "W80") { // original not ycsb
+            // write intensive
+            w.set_workload(20, 80, 0);
         } else {
-            printf("Invalid workload_type, must be either of A,B,C,F,X\n");
+            printf("Invalid workload_type, must be either of A,B,C,F\n");
             printf(
                 "See "
                 "https://github.com/brianfrankcooper/YCSB/wiki/Core-Workloads "
@@ -97,6 +103,7 @@ class Config {
     uint64_t get_reps_per_txn() const { return reps_per_txn; }
 
     static constexpr uint64_t get_max_reps_per_txn() {
+        // constexpr uint64_t max_reps = 32;
         constexpr uint64_t max_reps = 1000;
         return max_reps;
     }

@@ -9,13 +9,11 @@
 #include "benchmarks/ycsb/include/tx_runner.hpp"
 #include "benchmarks/ycsb/include/tx_utils.hpp"
 #include "indexes/masstree.hpp"
-#include "protocols/serval/include/major_gc.hpp"
-#include "protocols/serval/include/operation_set.hpp"
-#include "protocols/serval/include/row_region.hpp"
-#include "protocols/serval/include/serval.hpp"
-#include "protocols/serval/include/value.hpp"
-#include "protocols/serval/ycsb/initializer.hpp"
-#include "protocols/serval/ycsb/transaction.hpp"
+#include "protocols/cheetah/include/cheetah.hpp"
+#include "protocols/cheetah/include/operation_set.hpp"
+#include "protocols/cheetah/include/value.hpp"
+#include "protocols/cheetah/ycsb/initializer.hpp"
+#include "protocols/cheetah/ycsb/transaction.hpp"
 #include "protocols/ycsb_common/definitions.hpp"
 #include "protocols/ycsb_common/rendezvous_barrier.hpp"
 #include "utils/logger.hpp"
@@ -28,29 +26,9 @@ volatile mrcu_epoch_type active_epoch = 1;
 volatile std::uint64_t globalepoch = 1;
 volatile bool recovering = false;
 
-// template <typename Protocol>
-// void do_pre_initialization_phase(uint64_t worker_id, uint64_t
-// head_in_the_epoch,
-//                                  Protocol &serval,
-//                                  std::vector<OperationSet> &txs) {
-//     for (uint64_t i = 0; i < NUM_TXS_IN_ONE_EPOCH_IN_ONE_CORE; i++) {
-//         serval.serial_id_ = (i * 64) + worker_id; // round-robin assignment
-//         std::vector<Operation *> &rw_set =
-//             txs[head_in_the_epoch + (i * 64) + worker_id]
-//                 .rw_set_; // round-robin assignment
-//         for (size_t j = 0; j < rw_set.size(); j++) {
-//             if (rw_set[j]->ope_ == Operation::Ope::Read) {
-//                 serval.increment_refernce_counter(get_id<Record>(),
-//                                                   rw_set[j]->index_);
-//             }
-//         }
-//         serval.terminate_transaction();
-//     }
-// }
-
 template <typename Protocol>
-void do_initialization_phase(uint64_t worker_id, uint64_t head_in_the_epoch,
-                             Protocol &serval, std::vector<OperationSet> &txs) {
+void do_write_phase(uint64_t worker_id, uint64_t head_in_the_epoch,
+                    Protocol &serval, std::vector<OperationSet> &txs) {
   serval.core_ = worker_id;  // sequential assignment
   for (uint64_t i = 0; i < NUM_TXS_IN_ONE_EPOCH_IN_ONE_CORE; i++) {
     // ============ sequential assignment ============
@@ -60,8 +38,34 @@ void do_initialization_phase(uint64_t worker_id, uint64_t head_in_the_epoch,
             .w_set_;  // sequential assignment
     // ============ sequential assignment ============
     for (size_t j = 0; j < w_set.size(); j++) {
-      serval.append_pending_version(get_id<Record>(), w_set[j]->index_,
-                                    w_set[j]->pending_);
+      serval.update_write_bitmaps(get_id<Record>(), w_set[j]->index_,
+                                  w_set[j]->w_bitmap_);
+      assert(w_set[j]->w_bitmap_);
+    }
+    serval.terminate_transaction();
+  }
+  serval.finalize_update_write_bitmaps();
+}
+
+template <typename Protocol>
+void do_read_phase(uint64_t worker_id, uint64_t head_in_the_epoch,
+                   Protocol &serval, std::vector<OperationSet> &txs) {
+  serval.core_ = worker_id;  // sequential assignment
+  for (uint64_t i = 0; i < NUM_TXS_IN_ONE_EPOCH_IN_ONE_CORE; i++) {
+    // ============ sequential assignment ============
+    serval.serial_id_ = (worker_id * 64) + i;  // sequential assignment
+    std::vector<Operation *> &rw_set =
+        txs[head_in_the_epoch + (worker_id * 64) + i]
+            .rw_set_;  // sequential assignment
+    // ============ sequential assignment ============
+    for (size_t j = 0; j < rw_set.size(); j++) {
+      if (rw_set[j]->ope_ == Operation::Ope::Read) {
+        serval.append_pending_version(get_id<Record>(), rw_set[j]->index_,
+                                      rw_set[j]->pending_,
+                                      rw_set[j]->w_bitmap_);
+        assert(rw_set[j]->pending_);
+        assert(rw_set[j]->w_bitmap_);
+      }
     }
     serval.terminate_transaction();
   }
@@ -81,11 +85,11 @@ void do_execution_phase(uint64_t worker_id, uint64_t head_in_the_epoch,
     // ============ round-robin assignment ============
     for (size_t j = 0; j < rw_set.size(); j++) {
       if (rw_set[j]->ope_ == Operation::Ope::Read) {
-        serval.read(get_id<Record>(), rw_set[j]->index_);
+        assert(rw_set[j]->pending_);
+        serval.read(get_id<Record>(), rw_set[j]->index_, rw_set[j]->pending_,
+                    rw_set[j]->w_bitmap_);
       } else if (rw_set[j]->ope_ == Operation::Ope::Update) {
-        if (rw_set[j]->pending_) {  // TODO: txθ: w(1)...w(1)
-          serval.write(get_id<Record>(), rw_set[j]->pending_);
-        }
+        serval.write(get_id<Record>(), rw_set[j]->w_bitmap_);
       }
     }
   }
@@ -104,10 +108,10 @@ void rendezvous_barrier_to_start(RendezvousBarrierVariable::BarrierType type,
 
 template <typename Protocol>
 void run_tx(RendezvousBarrier &rend, [[maybe_unused]] ThreadLocalData &t_data,
-            uint32_t worker_id, RowRegionController &rrc,
+            uint32_t worker_id,
             [[maybe_unused]] std::vector<OperationSet> &txs) {
-  uint64_t init_total = 0, exec_total = 0, sync1_total = 0, sync2_total = 0;
-  uint64_t init_start, init_end, exec_start, exec_end, sync1_start, sync2_start;
+  uint64_t init_total = 0, exec_total = 0;
+  uint64_t init_start, init_end, exec_start, exec_end;
   [[maybe_unused]] Config &c = get_mutable_config();
 
   // Pre-Initialization Phase
@@ -117,8 +121,7 @@ void run_tx(RendezvousBarrier &rend, [[maybe_unused]] ThreadLocalData &t_data,
   t_data.stat.record(Stat::MeasureType::Core, numa.cpu_);
   t_data.stat.record(Stat::MeasureType::Node, numa.node_);
 
-  MajorGC gc;
-  Protocol serval(numa.cpu_, worker_id, rrc, t_data.stat, gc);
+  Protocol serval(numa.cpu_, worker_id, t_data.stat);
 
   // Perf perf(worker_id, tid);
   // Perf::Output perf_start, perf_end;
@@ -136,16 +139,17 @@ void run_tx(RendezvousBarrier &rend, [[maybe_unused]] ThreadLocalData &t_data,
         (epoch - 1) * NUM_TXS_IN_ONE_EPOCH;
 
     init_start = rdtscp();
+    do_write_phase(worker_id, head_in_the_epoch, serval, txs);
 
-    do_initialization_phase(worker_id, head_in_the_epoch, serval, txs);
+    rendezvous_barrier_to_start(
+        RendezvousBarrierVariable::BarrierType::InitPhase, rend, worker_id);
+
+    do_read_phase(worker_id, head_in_the_epoch, serval, txs);
 
     init_end = rdtscp();
     init_total = init_total + (init_end - init_start);
-
-    sync1_start = rdtscp();
     rendezvous_barrier_to_start(
         RendezvousBarrierVariable::BarrierType::ExecPhase, rend, worker_id);
-    sync1_total = sync1_total + (rdtscp() - sync1_start);
 
     exec_start = rdtscp();
 
@@ -153,14 +157,9 @@ void run_tx(RendezvousBarrier &rend, [[maybe_unused]] ThreadLocalData &t_data,
     exec_end = rdtscp();
     exec_total = exec_total + (exec_end - exec_start);
 
-    sync2_start = rdtscp();
     rendezvous_barrier_to_start(RendezvousBarrierVariable::BarrierType::NewEpoc,
                                 rend, worker_id);
-    sync2_total = sync2_total + (rdtscp() - sync2_start);
-
     epoch++;  // new epoch start
-
-    // gc.major_gc(worker_id, epoch, t_data.stat);
   }
   // uint64_t exp_end = worker_id == 0 ? rdtscp() : 0;
   uint64_t exp_end = rdtscp();
@@ -169,8 +168,6 @@ void run_tx(RendezvousBarrier &rend, [[maybe_unused]] ThreadLocalData &t_data,
   t_data.stat.record(Stat::MeasureType::TotalTime, exp_end - exp_start);
   t_data.stat.record(Stat::MeasureType::InitializationTime, init_total);
   t_data.stat.record(Stat::MeasureType::ExecutionTime, exec_total);
-  t_data.stat.record(Stat::MeasureType::Sync1Time, sync1_total);
-  t_data.stat.record(Stat::MeasureType::Sync2Time, sync2_total);
 
   // t_data.stat.record(Stat::MeasureType::PerfLeader,
   //                    perf_end.leader_ - perf_start.leader_);
@@ -185,71 +182,46 @@ bool has_write(OperationSet &tx, uint64_t key) {
   return false;
 }
 
-void print_database([[maybe_unused]] std::vector<OperationSet> &txs) {
-  using Index = MasstreeIndexes<Value>;
-  [[maybe_unused]] Config &c = get_mutable_config();
-  for (uint64_t key = 0; key < c.get_num_records(); key++) {
-    Index &idx = Index::get_index();
-    Value *val;
-    typename Index::Result res = idx.find(get_id<Record>(), key, val);
+// void print_database([[maybe_unused]] std::vector<OperationSet> &txs) {
+//   using Index = MasstreeIndexes<Value>;
+//   [[maybe_unused]] Config &c = get_mutable_config();
+//   for (uint64_t key = 0; key < c.get_num_records(); key++) {
+//     Index &idx = Index::get_index();
+//     Value *val;
+//     typename Index::Result res = idx.find(get_id<Record>(), key, val);
 
-    if (res == Index::Result::NOT_FOUND) return;
+//     if (res == Index::Result::NOT_FOUND) return;
 
-    if (0 < val->epoch_) {
-      [[maybe_unused]] uint64_t head_in_the_epoch =
-          (val->epoch_ - 1) * NUM_TXS_IN_ONE_EPOCH;
-      std::cout << "global_array: ";
-      for (auto [id, version] : val->global_array_.ids_slots_) {
-        assert(0 <= id);
-        assert(version->status == Version::VersionStatus::STABLE);
-        assert(has_write(txs[head_in_the_epoch + id], key));
-        std::cout << id << " ";
-      }
-      std::cout << std::endl;
-      std::cout << "region: ";
-      if (val->has_dirty_region()) {
-        for (size_t core = 0; core < 64; core++) {
-          if (is_bit_set_at_the_position(val->row_region_->core_bitmap_,
-                                         core)) {
-            PerCoreVersionArray *array = val->row_region_->arrays_[core];
-            assert(array->length() == (int)array->slots_.size());
-            uint64_t tx_bitmap = array->transaction_bitmap_;
-            uint64_t txid = 0;
-            for (size_t i = 0; i < array->slots_.size(); i++) {
-              assert(array->slots_[i]->status ==
-                     Version::VersionStatus::STABLE);
-              while ((tx_bitmap & set_bit_at_the_given_location(txid)) == 0) {
-                txid++;
-              }
-              tx_bitmap = tx_bitmap & ~set_bit_at_the_given_location(txid);
-              uint64_t serial_id = core * 64 + txid;
-              std::cout << serial_id << " ";
+//     WriteBitmap w_bitmap = val->w_bitmap_;
+//     uint64_t core_bitmap = w_bitmap.core_bitmap_;
+//     std::vector<uint64_t> tx_bitmaps = w_bitmap.tx_bitmaps_;
 
-              if (!has_write(txs[head_in_the_epoch + serial_id], key)) {
-                std::cout << "<<<<<<<<<"
-                          << "head_in_the_epoch: " << head_in_the_epoch
-                          << ", serial_id: " << serial_id << ", core: " << core
-                          << ", txid: " << txid;
-                if (has_write(txs[serial_id], key)) {
-                  std::cout << ", true ";
-                }
-                std::cout << ">>>>>>>>" << std::endl;
-              }
-              // assert(
-              //     has_write(txs[head_in_the_epoch + serial_id],
-              //     key));
-            }
-          }
-        }
-        std::cout << std::endl;
-      }
-      std::cout << std::endl;
-    }
+//     // check placeholders_
+//     if (!w_bitmap.placeholders_.empty()) {
+//       for (auto [serial_id, version] : w_bitmap.placeholders_) {
+//         std::cout << serial_id << ", ";
+//         uint64_t core = serial_id / 64;
+//         uint64_t tx = serial_id % 64;
+//         assert(is_bit_set_at_the_position(core_bitmap, core));
+//         uint64_t pos = w_bitmap.count_prefix_sum(core);
+//         assert(is_bit_set_at_the_position(tx_bitmaps[pos], tx));
+//         assert(has_write(txs[serial_id], key));
+//         assert(version->status == Version::VersionStatus::STABLE);
+//       }
+//       std::cout << std::endl;
+//     }
 
-    // std::cout << key << ": ";
-    // val->global_array_.print();
-  }
-}
+//     // assert(w_bitmap.ref_cnt_ == 0);
+//     // assert(w_bitmap.core_bitmap_ == 0);
+//     // assert(w_bitmap.tx_bitmaps_.empty());
+//     // assert(w_bitmap.placeholders_.empty());
+//     // assert(w_bitmap.final_state_ == nullptr);
+//     // assert(w_bitmap.master_ != nullptr);
+
+//     // std::cout << key << ": ";
+//     // val->global_array_.print();
+//   }
+// }
 
 int main(int argc, const char *argv[]) {
   if (argc != 9) {
@@ -293,17 +265,14 @@ int main(int argc, const char *argv[]) {
 
   std::vector<ThreadLocalData> t_data(num_threads);
 
-  RowRegionController rrc;
   RendezvousBarrier rend(num_threads - 1);
 
   std::vector<OperationSet> txs(NUM_ALL_TXS);
-  for (size_t i = 0; i < txs[0].rw_set_.size(); i++) {
-    std::cout << txs[0].rw_set_[i]->index_ << std::endl;
-  }
+  std::cout << "start..." << std::endl;
 
   for (int i = 0; i < num_threads; i++) {
     threads.emplace_back(run_tx<Protocol>, std::ref(rend), std::ref(t_data[i]),
-                         i, std::ref(rrc), std::ref(txs));
+                         i, std::ref(txs));
   }
   for (int i = 0; i < num_threads; i++) {
     threads[i].join();

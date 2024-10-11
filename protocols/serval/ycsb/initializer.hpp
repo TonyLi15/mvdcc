@@ -14,7 +14,6 @@ template <typename Index> class Initializer {
   private:
     using Key = typename Index::Key;
     using Value = typename Index::Value;
-    using Version = typename Value::Version;
 
     static void insert_into_index(TableID table_id, Key key, void *rec,
                                   void *rec2) {
@@ -23,6 +22,7 @@ template <typename Index> class Initializer {
         // Version *epoch_1_version = reinterpret_cast<Version *>(
         //     MemoryAllocator::aligned_allocate(sizeof(Version)));
         Value *val = new Value;
+
         Version *epoch_1_version = new Version;
         val->initialize();
         epoch_1_version->rec = rec;

@@ -1,5 +1,7 @@
 #pragma once
 
+int count_bits(uint64_t bits) { return __builtin_popcountll(bits); }
+
 // 1000...0000
 // 注： 符号付きの右シフトは左が符号ビットで埋まる
 // int64_t set_upper_bit___signed() { return UINT64_MAX ^ (UINT64_MAX >>
@@ -10,8 +12,14 @@ uint64_t set_upper_bit___unsigned() { return ~(~0ULL >> 1); } // TODO
 uint64_t set_bit_at_the_given_location(uint64_t pos) { // TODO
     return set_upper_bit___unsigned() >> pos;
 }
+
+bool is_bit_set_at_the_position(uint64_t bitmap, int pos) {
+    return (bitmap & set_bit_at_the_given_location(pos)) != 0;
+}
+
 uint64_t set_bit_at_the_given_location(uint64_t bitmap, uint64_t pos) {
     assert(pos < 64); // TODO
+    assert(!is_bit_set_at_the_position(bitmap, pos));
     return bitmap | set_bit_at_the_given_location(pos);
 }
 
@@ -53,9 +61,6 @@ uint64_t fill_the_left_side_until_the_given_position(int pos) {
     return set_upper_bit___signed() >> pos;
 }
 
-bool is_bit_set_at_the_position(uint64_t bitmap, int pos) {
-    return (bitmap & set_bit_at_the_given_location(pos)) != 0;
-}
 // returns the location of 1st "1" from right
 int find_the_location_of_first_bit_from_right(uint64_t bits) {
     return __builtin_ffsll(bits);
@@ -77,6 +82,27 @@ int find_the_largest_among_or_less_than(uint64_t bitmap, int pos) {
     if (smallers == 0)
         return -1;
     return find_the_largest(smallers);
+}
+
+// {second largest, first largest}
+std::pair<int, int> find_the_two_largest_among_or_less_than(uint64_t bitmap,
+                                                            int pos) {
+    assert(bitmap != 0);
+    assert(0 <= pos && pos < 64);
+    uint64_t smallers =
+        bitmap & fill_the_left_side_until_the_given_position(pos);
+    if (smallers == 0)
+        return {-1, -1};
+    int largest_pos = find_the_largest(smallers);
+    assert(largest_pos < 64);
+    if (__builtin_popcountll(smallers) == 1) {
+        return {-1, largest_pos};
+    }
+    assert(0 <= largest_pos);
+    int second_largest_pos = find_the_largest(
+        ~set_bit_at_the_given_location(largest_pos) & smallers);
+    assert(second_largest_pos < largest_pos);
+    return {second_largest_pos, largest_pos};
 }
 
 int find_the_largest_among_less_than(uint64_t bitmap, int pos) {

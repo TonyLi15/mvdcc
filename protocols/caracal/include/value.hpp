@@ -3,27 +3,14 @@
 #include <cstdint>
 #include <mutex>
 
-#include "protocols/caracal/include/buffer.hpp"
-#include "protocols/common/readwritelock.hpp"
+#include "protocols/caracal/include/row_buffer.hpp"
 #include "utils/atomic_wrapper.hpp"
 
-template <typename Version_> struct Value {
-    using Version = Version_;
-    alignas(64) RWLock rwl;
-    uint64_t epoch_ = 0;
-
-    Version *master_ = nullptr; // final state
+struct Value {
+    alignas(64) uint64_t epoch_ = 0;
 
     GlobalVersionArray global_array_; // Global Version Array
 
     // For contended versions
     RowBuffer *row_buffer_ = nullptr; // Pointer to per-core buffer
-
-    void initialize() { rwl.initialize(); }
-
-    void lock() { rwl.lock(); }
-
-    bool try_lock() { return rwl.try_lock(); }
-
-    void unlock() { rwl.unlock(); }
 };
