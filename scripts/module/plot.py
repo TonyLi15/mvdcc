@@ -10,7 +10,7 @@ class Plot:
     # color = {"caracal": "red", "serval": "blue", "serval_rc": "green", "serval_rc_bbu": "orange"}
     # color = {"caracal": "#DB6A2F", "serval": "#4EAC7F", "serval_rc": "#2F6DB6", "serval_rc_bbu": "#2F6DB6"}
     color = {"caracal": "#266d8e", "serval": "#023043", "serval_rc": "#f26d3d", "serval_rc_bbu": "#f26d3d", "cheetah": "#ff9ad0"}
-    protocol_names = {"caracal": "Caracal", "serval": "Serval", "serval_rc": "Cheetah--", "serval_rc_bbu": "Cheetah-", "cheetah": "Proposed Method"}
+    protocol_names = {"caracal": "Caracal", "serval": "Serval", "serval_rc": "Cheetah--", "serval_rc_bbu": "Cheetah-", "cheetah": "Cheetah"}
     linestyle = {"caracal": "solid", "serval": "dashed", "serval_rc": "dashdot", "serval_rc_bbu": "dashdot", "cheetah": "dotted"}
     ylabel = {
       "Core": "Core",

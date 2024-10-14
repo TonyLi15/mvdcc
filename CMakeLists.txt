@@ -141,10 +141,16 @@ else ()
     add_definitions(-DNUM_TXS_IN_ONE_EPOCH=4096)
 endif ()
 
-if (DEFINED BATCH_CORE_BITMAP_UPDATE)
-    add_definitions(-DBATCH_CORE_BITMAP_UPDATE=${BATCH_CORE_BITMAP_UPDATE})
+if (DEFINED BCBU)
+    add_definitions(-DBCBU=${BCBU})
 else ()
-    add_definitions(-DBATCH_CORE_BITMAP_UPDATE=0)
+    add_definitions(-DBCBU=0)
+endif ()
+
+if (DEFINED RC)
+    add_definitions(-DRC=${RC})
+else ()
+    add_definitions(-DRC=0)
 endif ()
 
 
@@ -152,8 +158,8 @@ endif ()
 #                            CC Specific Parameters                           #
 ###############################################################################
 
-set(CC_ALG "NAIVE" CACHE STRING "Choose CC Algorithm: NAIVE, SILO, NOWAIT, MVTO, WAITDIE, CARACAL, SERVAL")
-set_property(CACHE CC_ALG PROPERTY STRINGS "NAIVE" "SILO" "NOWAIT" "MVTO" "WAITDIE" "CARACAL" "SERVAL")
+set(CC_ALG "NAIVE" CACHE STRING "Choose CC Algorithm: NAIVE, SILO, NOWAIT, MVTO, WAITDIE, CARACAL, SERVAL, SERVAL_RC, SERVAL_RC_BBU, CHEETAH")
+set_property(CACHE CC_ALG PROPERTY STRINGS "NAIVE" "SILO" "NOWAIT" "MVTO" "WAITDIE" "CARACAL" "SERVAL" "SERVAL_RC" "SERVAL_RC_BBU, CHEETAH")
 
 set(CC_LINK_LIBRARIES "")
 set(CC_INCLUDE_DIRECTORIES "")
@@ -186,6 +192,21 @@ elseif ("${CC_ALG}" STREQUAL "CARACAL")
   add_dep(masstree https://github.com/wattlebirdaz/masstree-beta.git master)
   list(APPEND CC_INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/_deps/src/") # masstree
 elseif ("${CC_ALG}" STREQUAL "SERVAL")
+  set(CMAKE_CXX_STANDARD 17)
+  list(APPEND CC_LINK_LIBRARIES "masstree")
+  add_dep(masstree https://github.com/wattlebirdaz/masstree-beta.git MVTO) # MVTO branch
+  list(APPEND CC_INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/_deps/src/") # masstree
+elseif ("${CC_ALG}" STREQUAL "SERVAL_RC")
+  set(CMAKE_CXX_STANDARD 17)
+  list(APPEND CC_LINK_LIBRARIES "masstree")
+  add_dep(masstree https://github.com/wattlebirdaz/masstree-beta.git MVTO) # MVTO branch
+  list(APPEND CC_INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/_deps/src/") # masstree
+elseif ("${CC_ALG}" STREQUAL "SERVAL_RC_BBU")
+  set(CMAKE_CXX_STANDARD 17)
+  list(APPEND CC_LINK_LIBRARIES "masstree")
+  add_dep(masstree https://github.com/wattlebirdaz/masstree-beta.git MVTO) # MVTO branch
+  list(APPEND CC_INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/_deps/src/") # masstree
+elseif ("${CC_ALG}" STREQUAL "CHEETAH")
   set(CMAKE_CXX_STANDARD 17)
   list(APPEND CC_LINK_LIBRARIES "masstree")
   add_dep(masstree https://github.com/wattlebirdaz/masstree-beta.git MVTO) # MVTO branch
@@ -267,7 +288,7 @@ message(STATUS "[ADDED] tpccrunner_static")
 
 set(EXECUTABLE "${PROJECT_SOURCE_DIR}/executables/${BENCH_NAME}_${CC_NAME}.cpp")
 if ("${BENCH_NAME}" STREQUAL "ycsb")
-  set(FILENAME "${BENCH_NAME}${PAYLOAD_SIZE}_${MAX_SLOTS_OF_PER_CORE_BUFFER}_${NUM_TXS_IN_ONE_EPOCH}_${BATCH_CORE_BITMAP_UPDATE}_${CC_NAME}")
+  set(FILENAME "${BENCH_NAME}${PAYLOAD_SIZE}_${MAX_SLOTS_OF_PER_CORE_BUFFER}_${NUM_TXS_IN_ONE_EPOCH}_${BCBU}_${RC}_${CC_NAME}")
 else ()
   set(FILENAME "${BENCH_NAME}_${CC_NAME}")
 endif ()

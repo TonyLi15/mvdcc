@@ -49,49 +49,62 @@ In this repository, 3 Deterministic Concurrency Control (DCC) protocols with 2 b
 
 ## YCSB
 
-Perform experiments of Caracal and Serval with YCSB workloads
-
-Execute the following command in the base directory to generate varying contention experiments:
+Perform experiments of MVDCC protocols implemented in the current repository with YCSB workloads by executing the following command in the base directory to generate varying contention experiments:
 
 ```sh
-python3 scripts/ycsb.py {workload_type} {num_records} {num_threads} {seconds} {skews} {reps_per_txn} 
+python3 scripts/ycsb.py
 ```
 
-**The current default values:**
+### Protocols that support to be evaluated
+- Caracal
+- Serval
+- Cheetah
+- *Choose the number of protocols that will be evaluated by modifying ```ycsb.py```*
 
-- workload_type: "X"
-- num_records: 1000000
-- num_threads: 64
-- seconds: 1
-- skews: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]
-- reps_per_txn: 10
+### Workload Types Available (```workloads```)
+- ```X```: Write-only Workload (R:0%, W100%)
+- ```W90```: Write-intensive Workload (R:10%, W90%)
+- ```W80```: Write moderatively intensive Workload (R:20%, W80%)
+- ```A```: YCSB-A Workload (R:50%, W50%)
+- ```B```: YCSB-B Workload (R:95%, W5%)
+- ```C```: Read-only (YCSB-C) Workload (R:100%, W0%)
+- *See [ycsb documentation](https://github.com/brianfrankcooper/YCSB/wiki/Core-Workloads) for the details of the workload*
 
-**Plots that will be generated:**
+### Constants
+- Number of Slots in Buffer (```buffer_slots```, only applicable to Caracal): 255
+- Number of Transactions in each epoch (```txs_in_epochs```): 4,096 
+- Number of Operations in each transaction (```repps```): 10
+- Total number of records in Database (```records```): 10000000
+- Number of threads (```threads```): 64
 
-- The comparison of Total Latency
-- The comparison of Initialization Latency
-- The comparison of Latch wait in Initialization Phase
+### Plots that will be generated
 
-***Notes***
+- Total Time varying Contention
+- Initialization Time varying Contention
+- Execution Time varying Contention
+- Version Created varying Contention
+- *Other Plots are under construction*
+
+### ***Notes***
 
 - Note that in YCSB, an extra `-PAYLOAD_SIZE=X` argument to determine the payload size at compile time is needed.
 - After building, the executable will be stored into the `build/bin` directory.
 - In our experiments, we use Payload size of 4 bytes as default.
 - The number of experiments in each trial is set to 10.
 
-```sh
+<!-- ```sh
 python3 scripts/ycsb.py A 10000000 64 1 0.5,0.99 10 
 ```
 
-The above example will create table with 10M records (each with four bytes) and executes YCSB-A with varying skews of 0.5 and 0.99, 10 operations per transaction using 64 threads for 1 second. See [ycsb documentation](https://github.com/brianfrankcooper/YCSB/wiki/Core-Workloads) for the details of the workload.
+The above example will create table with 10M records (each with four bytes) and executes YCSB-A with varying skews of 0.5 and 0.99, 10 operations per transaction using 64 threads for 1 second.  -->
 
 ## TPC-C
 
 Currently unsupported
 
-# Performance
+<!-- # Performance
 
-Under Construction
+Under Construction -->
 
 # Authors
 

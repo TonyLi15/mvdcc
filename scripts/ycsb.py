@@ -32,12 +32,12 @@ x_label = {
 # protocols = ["cheetah"]
 
 # 2 Protocols Experiments
-protocols = ["caracal", "serval"]
+# protocols = ["caracal", "serval"]
 # protocols = ["caracal", "cheetah"]
 # protocols = ["serval", "cheetah"]
 
 # 3 Protocols Experiments
-# protocols = ["caracal", "serval", "cheetah"]
+protocols = ["caracal", "serval", "cheetah"]
 
 
 # Build Type -> "Debug" when testing, "Release" when doing experiments used in Paper
@@ -59,7 +59,7 @@ def gen_setups():
     buffer_slots = [255] # 255
     # ===================================
 
-    # =========== for serval ===========
+    # =========== for serval (IGNORE THIS PART)===========
     bcbus = [0] # batch_core_bitmap_updates: 0 is good
     rcs = [0] # reference counter (read counter)
     # ===================================
@@ -69,11 +69,11 @@ def gen_setups():
     # ===================================
 
     # =========== workload parameters ===========
-    # workloads = ["X"] # 0:100 Write Only -> Cheetah best until 0.9
+    workloads = ["X"] # 0:100 // Write Only 
     # workloads = ["A"] # 50:50 // Update heavy
     # workloads = ["C"] # 100:0 // Read Only
-    # workloads = ["B"] # 95:5 // Read heavy -> Cheetah worst from 0.9
-    workloads = ["W90"] # 10:90 // Write intensive
+    # workloads = ["B"] # 95:5 // Read heavy
+    # workloads = ["W90"] # 10:90 // Write intensive
     # workloads = ["W80"] # 20:80 // Write moderate intensive
 
     # skews = [0.7, 0.8, 0.85, 0.9, 0.95, 0.99] # 0.0 - 0.99
